@@ -1,3 +1,4 @@
+{-# LANGUAGE DeriveDataTypeable #-}
 module Main where
 
 import qualified Data.ByteString.Lazy as B
@@ -12,7 +13,17 @@ import System.Environment (getArgs)
 import System.Directory (getDirectoryContents)
 import Data.Monoid (Monoid(..))
 import Data.Foldable (foldMap)
+import System.Console.CmdArgs
+import Prelude hiding (all)
 
+
+data Args = Args { all :: Bool, path :: String } deriving (Show, Data, Typeable)
+
+argsDef :: Args
+argsDef = Args 
+  { all = False &= help "Combine all generated samples in one audio file"
+  , path = "./" &= argPos 0 &= typDir
+  } &= versionArg [ignore] &= summary "ags2aiff v0.1, Sjoerd Visscher 2010"
 
 
 sampleRate :: Int
@@ -20,12 +31,18 @@ sampleRate = 24000
 
 main :: IO ()
 main = do 
-  (path:_) <- getArgs
-  files <- getDirectoryContents path
+  args <- cmdArgs argsDef
+  let p = path args ++ (if last (path args) == '/' then "" else "/")
+  files <- getDirectoryContents p
   let agsFiles = filter ((== ".ags") . reverse . take 4 . reverse) files
-  sounds <- mapM (generateSound . (path ++)) agsFiles
-  B.writeFile (path ++ "Sound.aiff") $ generateAIFF (foldMap (`mappend` silence1s) sounds)
-  writeFile (path ++ "Sound.js") $ generateJS sounds agsFiles
+  sounds <- mapM (generateSound . (p ++)) agsFiles
+  if (all args) 
+    then do
+      B.writeFile (p ++ "Sound.aiff") $ generateAIFF (foldMap (`mappend` silence1s) sounds)
+      writeFile (p ++ "Sound.js") $ generateJS sounds agsFiles
+    else do
+      flip mapM_ (zip sounds agsFiles) $ \(sound, fname) ->
+        B.writeFile ((++ ".aiff") . reverse . drop 4 . reverse $ fname) $ generateAIFF sound
 
 generateSound :: String -> IO Audio
 generateSound path = do
